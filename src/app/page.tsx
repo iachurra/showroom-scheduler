@@ -1,66 +1,195 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+"use client";
+
+import { useEffect, useState } from "react";
+
+type AvailabilityResponse = {
+  date: string;
+  timezone: string;
+  open: string;
+  close: string;
+  slotMinutes: number;
+  slots: string[];
+  booked: string[];
+};
+
+const todayISO = new Date().toISOString().split("T")[0];
+
 
 export default function Home() {
+  const [date, setDate] = useState(todayISO);
+  const [slots, setSlots] = useState<string[]>([]);
+  const [booked, setBooked] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+
+  const [status, setStatus] = useState("");
+
+  // Load availability when date changes
+  useEffect(() => {
+    async function load() {
+      setSelected(null);
+      setStatus("Loading availability...");
+
+      const res = await fetch(`/api/appointments?date=${date}`);
+      const data: AvailabilityResponse = await res.json();
+
+      setSlots(data.slots);
+      setBooked(data.booked);
+      setStatus("");
+    }
+
+    load();
+  }, [date]);
+
+  async function book() {
+    if (!selected) return;
+
+    if (!name || !email) {
+      setStatus("Name and email are required.");
+      return;
+    }
+
+    setStatus("Booking...");
+
+    const res = await fetch("/api/appointments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        date,
+        startTime: selected,
+        duration: 30,
+        name,
+        email,
+        phone: phone || undefined,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      setStatus(data.error || "Booking failed");
+      return;
+    }
+
+    setStatus("Booked successfully!");
+    setSelected(null);
+    setName("");
+    setEmail("");
+    setPhone("");
+
+    const refresh = await fetch(`/api/appointments?date=${date}`);
+    const refreshed: AvailabilityResponse = await refresh.json();
+    setSlots(refreshed.slots);
+    setBooked(refreshed.booked);
+  }
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main style={{ padding: 32, fontFamily: "sans-serif" }}>
+      <h1>Showroom Scheduler</h1>
+
+      <label style={{ display: "block", marginBottom: 16 }}>
+        Date:&nbsp;
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
         />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.tsx file.</h1>
+      </label>
+
+      <h2>Available Slots</h2>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {slots.map((s) => {
+          const isBooked = booked.includes(s);
+
+          return (
+            <button
+              key={s}
+              disabled={isBooked}
+              onClick={() => !isBooked && setSelected(s)}
+              style={{
+                padding: "8px 12px",
+                border: selected === s ? "2px solid black" : "1px solid #ccc",
+                background: isBooked
+                  ? "#444"
+                  : selected === s
+                  ? "#eaeaea"
+                  : "#fff",
+                color: isBooked ? "#999" : "#000",
+                cursor: isBooked ? "not-allowed" : "pointer",
+                opacity: isBooked ? 0.5 : 1,
+              }}
+            >
+              {new Date(`1970-01-01T${s}:00`).toLocaleTimeString([], {
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </button>
+          );
+        })}
+      </div>
+
+      {selected && (
+        <div style={{ marginTop: 24, maxWidth: 320 }}>
           <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
+            Selected time:{" "}
+            {new Date(`1970-01-01T${selected}:00`).toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
           </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+          <label style={{ display: "block", marginBottom: 8 }}>
+            Name *
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={{ width: "100%", padding: 6 }}
             />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </label>
+
+          <label style={{ display: "block", marginBottom: 8 }}>
+            Email *
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              style={{ width: "100%", padding: 6 }}
+            />
+          </label>
+
+          <label style={{ display: "block", marginBottom: 12 }}>
+            Phone (optional)
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              style={{ width: "100%", padding: 6 }}
+            />
+          </label>
+
+          <button onClick={book} style={{ padding: "8px 12px" }}>
+            Confirm Booking
+          </button>
         </div>
-      </main>
-    </div>
+      )}
+
+      {status && (
+        <p
+          style={{
+            marginTop: 16,
+            color: status.toLowerCase().includes("success")
+              ? "#22c55e"
+              : "#facc15",
+          }}
+        >
+          {status}
+        </p>
+      )}
+    </main>
   );
 }
