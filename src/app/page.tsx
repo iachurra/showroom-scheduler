@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getSession } from "./lib/auth";
 
 type AvailabilityResponse = {
   date: string;
@@ -14,9 +16,14 @@ type AvailabilityResponse = {
 
 const todayISO = new Date().toISOString().split("T")[0];
 
-
 export default function Home() {
-  const [date, setDate] = useState(todayISO);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Use date from URL if present so redirects can restore context
+  const initialDate = searchParams.get("date") || todayISO;
+  const [date, setDate] = useState(initialDate);
+
   const [slots, setSlots] = useState<string[]>([]);
   const [booked, setBooked] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -26,23 +33,81 @@ export default function Home() {
   const [phone, setPhone] = useState("");
 
   const [status, setStatus] = useState("");
+  const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
+
+  // Check auth once on mount (non-blocking)
+  useEffect(() => {
+    async function checkAuth() {
+      const { data } = await getSession();
+      const session = data?.session ?? null;
+      setIsAuthed(!!session);
+      if (session?.user?.email) setEmail(session.user.email);
+    }
+
+    checkAuth();
+  }, []);
+
+  // Restore selection after returning from login/signup
+  useEffect(() => {
+    if (!isAuthed) return;
+
+    const time = searchParams.get("time");
+    if (time) {
+      // defer to avoid synchronous setState during render
+      queueMicrotask(() => setSelected(time));
+    }
+  }, [isAuthed, searchParams]);
 
   // Load availability when date changes
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
       setSelected(null);
       setStatus("Loading availability...");
 
       const res = await fetch(`/api/appointments?date=${date}`);
-      const data: AvailabilityResponse = await res.json();
 
-      setSlots(data.slots);
-      setBooked(data.booked);
-      setStatus("");
+      if (!res.ok) {
+        // try to parse error body, but guard against non-json
+        let errText = "Failed to load availability";
+        try {
+          const err = await res.json();
+          errText = err?.error || errText;
+        } catch {}
+        if (!cancelled) setStatus(errText);
+        return;
+      }
+
+      const data: AvailabilityResponse = await res.json();
+      if (!cancelled) {
+        setSlots(data.slots);
+        setBooked(data.booked);
+        setStatus("");
+      }
     }
 
     load();
+
+    return () => {
+      cancelled = true;
+    };
   }, [date]);
+
+  async function handleTimeClick(time: string) {
+    // If not authed, redirect to login and preserve intent
+    if (!isAuthed) {
+      // Per requirement: /login?redirect=/?date=YYYY-MM-DD&time=HH:mm
+      const params = new URLSearchParams();
+      params.set("redirect", "/");
+      params.set("date", date);
+      params.set("time", time);
+      router.push(`/login?${params.toString()}`);
+      return;
+    }
+
+    setSelected(time);
+  }
 
   async function book() {
     if (!selected) return;
@@ -67,10 +132,20 @@ export default function Home() {
       }),
     });
 
-    const data = await res.json();
+    let data: unknown = null;
+    try {
+      data = await res.json();
+    } catch {
+      // ignore parse errors
+    }
 
     if (!res.ok) {
-      setStatus(data.error || "Booking failed");
+      // safe check for error message
+      let errMsg: string | null = null;
+      if (typeof data === "object" && data !== null && "error" in data) {
+        errMsg = (data as { error?: string }).error ?? null;
+      }
+      setStatus(errMsg || "Booking failed");
       return;
     }
 
@@ -80,10 +155,13 @@ export default function Home() {
     setEmail("");
     setPhone("");
 
+    // refresh availability
     const refresh = await fetch(`/api/appointments?date=${date}`);
-    const refreshed: AvailabilityResponse = await refresh.json();
-    setSlots(refreshed.slots);
-    setBooked(refreshed.booked);
+    if (refresh.ok) {
+      const refreshed: AvailabilityResponse = await refresh.json();
+      setSlots(refreshed.slots);
+      setBooked(refreshed.booked);
+    }
   }
 
   return (
@@ -109,7 +187,7 @@ export default function Home() {
             <button
               key={s}
               disabled={isBooked}
-              onClick={() => !isBooked && setSelected(s)}
+              onClick={() => !isBooked && handleTimeClick(s)}
               style={{
                 padding: "8px 12px",
                 border: selected === s ? "2px solid black" : "1px solid #ccc",
@@ -132,10 +210,10 @@ export default function Home() {
         })}
       </div>
 
-      {selected && (
+      {isAuthed && selected && (
         <div style={{ marginTop: 24, maxWidth: 320 }}>
           <p>
-            Selected time:{" "}
+            Selected time: {" "}
             {new Date(`1970-01-01T${selected}:00`).toLocaleTimeString([], {
               hour: "numeric",
               minute: "2-digit",

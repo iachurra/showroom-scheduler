@@ -1,23 +1,40 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { signUp } from "../lib/auth"
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { signUp } from "../lib/auth";
 
 export default function SignupPage() {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [message, setMessage] = useState("")
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const redirectTo = searchParams.get("redirect") || "/";
+  const date = searchParams.get("date") || "";
+  const time = searchParams.get("time") || "";
+  const prefillEmail = searchParams.get("email") || "";
+
+  const [email, setEmail] = useState(prefillEmail);
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+    e.preventDefault();
 
-    const { error } = await signUp(email, password)
+    const { error } = await signUp(email, password);
 
     if (error) {
-      setMessage(error.message)
-    } else {
-      setMessage("Account created successfully")
+      setMessage(error.message);
+      return;
     }
+
+    // After signup, send user to login with preserved params so they can log in and continue
+    const params = new URLSearchParams();
+    if (redirectTo) params.set("redirect", redirectTo);
+    if (date) params.set("date", date);
+    if (time) params.set("time", time);
+    if (email) params.set("email", email);
+
+    router.push(`/login?${params.toString()}`);
   }
 
   return (
@@ -31,9 +48,8 @@ export default function SignupPage() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
+          style={{ width: "100%", padding: 6, marginBottom: 8 }}
         />
-
-        <br />
 
         <input
           type="password"
@@ -41,14 +57,15 @@ export default function SignupPage() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
+          style={{ width: "100%", padding: 6, marginBottom: 8 }}
         />
 
-        <br />
-
-        <button type="submit">Sign up</button>
+        <button type="submit" style={{ padding: "8px 12px" }}>
+          Sign up
+        </button>
       </form>
 
-      {message && <p>{message}</p>}
+      {message && <p style={{ marginTop: 12 }}>{message}</p>}
     </main>
-  )
+  );
 }
