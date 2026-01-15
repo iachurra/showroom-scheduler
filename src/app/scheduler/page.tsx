@@ -1,12 +1,12 @@
 "use client";
 
 import { Suspense } from "react";
-import LoginClient from "./LoginClient";
+import HomeClient from "../HomeClient";
 
-export default function LoginPage() {
+export default function SchedulerPage() {
   return (
     <Suspense fallback={null}>
-      <LoginClient />
+      <HomeClient />
     </Suspense>
   );
 }

@@ -1,21 +1,14 @@
 generator client {
-  provider   = "prisma-client-js"
-  engineType = "binary"
+  provider = "prisma-client-js"
 }
-
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-
-
-
 model Appointment {
   id        Int      @id @default(autoincrement())
-
-  // booking info
   date      DateTime
   startTime DateTime
   endTime   DateTime
@@ -26,7 +19,10 @@ model Appointment {
 
   createdAt DateTime @default(now())
 
-  @@unique([startTime, endTime])
+  @@unique([date, startTime], name: "date_startTime")
+  @@index([date])
+  @@index([startTime])
+  @@index([date, startTime])
+
   @@map("appointments")
 }
-
