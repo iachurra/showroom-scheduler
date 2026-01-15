@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { DateTime } from "luxon";
 import { prisma } from "@/app/lib/prisma";
-import { createServerClient } from "@supabase/ssr";
 
 const TZ = "America/Los_Angeles";
 const OPEN_HOUR = 9;
@@ -17,57 +15,27 @@ type CreateAppointmentBody = {
   phone?: string;
 };
 
-/* ---------- Supabase (SERVER, async cookies-safe) ---------- */
-
-async function getSupabase() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options: any) {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove(name: string, options: any) {
-          cookieStore.set({
-            name,
-            value: "",
-            ...options,
-            maxAge: 0,
-          });
-        },
-      },
-    }
-  );
-}
-
-/* ---------------- POST (Create booking) ---------------- */
+/* ---------------- POST (Create booking — PUBLIC) ---------------- */
 
 export async function POST(req: Request) {
   try {
-    const supabase = await getSupabase();
-    const { data } = await supabase.auth.getSession();
-
-    if (!data.session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const body = (await req.json()) as CreateAppointmentBody;
     const { date, startTime, name, email } = body;
     const duration = body.duration ?? 30;
     const phone = body.phone ?? null;
 
     if (!date || !startTime || !name || !email) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
     }
 
     if (duration !== 30 && duration !== 60) {
-      return NextResponse.json({ error: "Invalid duration" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid duration" },
+        { status: 400 }
+      );
     }
 
     const day = DateTime.fromISO(date, { zone: TZ });
@@ -80,14 +48,17 @@ export async function POST(req: Request) {
     const minute = Number(minuteStr);
 
     if (Number.isNaN(hour) || Number.isNaN(minute)) {
-      return NextResponse.json({ error: "Invalid startTime" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid startTime" },
+        { status: 400 }
+      );
     }
 
     const startPst = day.set({ hour, minute, second: 0, millisecond: 0 });
     const endPst = startPst.plus({ minutes: duration });
 
-    const open = startPst.set({ hour: OPEN_HOUR, minute: 0, second: 0, millisecond: 0 });
-    const close = startPst.set({ hour: CLOSE_HOUR, minute: 0, second: 0, millisecond: 0 });
+    const open = startPst.set({ hour: OPEN_HOUR, minute: 0 });
+    const close = startPst.set({ hour: CLOSE_HOUR, minute: 0 });
 
     if (startPst < open || endPst > close) {
       return NextResponse.json(
@@ -129,11 +100,14 @@ export async function POST(req: Request) {
     }
   } catch (err) {
     console.error("POST /api/appointments error", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 
-/* ---------------- GET (Availability) ---------------- */
+/* ---------------- GET (Availability — PUBLIC) ---------------- */
 
 export async function GET(req: Request) {
   try {
@@ -141,7 +115,10 @@ export async function GET(req: Request) {
     const date = searchParams.get("date");
 
     if (!date) {
-      return NextResponse.json({ error: "Missing date param" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing date param" },
+        { status: 400 }
+      );
     }
 
     const day = DateTime.fromISO(date, { zone: TZ });
@@ -149,8 +126,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Invalid date" }, { status: 400 });
     }
 
-    const open = day.set({ hour: OPEN_HOUR, minute: 0, second: 0, millisecond: 0 });
-    const close = day.set({ hour: CLOSE_HOUR, minute: 0, second: 0, millisecond: 0 });
+    const open = day.set({ hour: OPEN_HOUR, minute: 0 });
+    const close = day.set({ hour: CLOSE_HOUR, minute: 0 });
 
     const appointments = await prisma.appointment.findMany({
       where: {
@@ -164,7 +141,9 @@ export async function GET(req: Request) {
 
     const booked = new Set(
       appointments.map(a =>
-        DateTime.fromJSDate(a.startTime).setZone(TZ).toFormat("HH:mm")
+        DateTime.fromJSDate(a.startTime)
+          .setZone(TZ)
+          .toFormat("HH:mm")
       )
     );
 
@@ -186,6 +165,9 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     console.error("GET /api/appointments error", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
