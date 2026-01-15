@@ -15,11 +15,11 @@ type CreateAppointmentBody = {
   phone?: string;
 };
 
-/* ---------------- POST (Create booking — PUBLIC) ---------------- */
+/* ---------------- POST (Create booking) ---------------- */
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as CreateAppointmentBody;
+    const body = (await req.json()) as Partial<CreateAppointmentBody>;
     const { date, startTime, name, email } = body;
     const duration = body.duration ?? 30;
     const phone = body.phone ?? null;
@@ -40,21 +40,21 @@ export async function POST(req: Request) {
 
     const day = DateTime.fromISO(date, { zone: TZ });
     if (!day.isValid) {
-      return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid date" },
+        { status: 400 }
+      );
     }
 
-    const [hourStr, minuteStr] = startTime.split(":");
-    const hour = Number(hourStr);
-    const minute = Number(minuteStr);
-
-    if (Number.isNaN(hour) || Number.isNaN(minute)) {
+    const [h, m] = startTime.split(":").map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) {
       return NextResponse.json(
         { error: "Invalid startTime" },
         { status: 400 }
       );
     }
 
-    const startPst = day.set({ hour, minute, second: 0, millisecond: 0 });
+    const startPst = day.set({ hour: h, minute: m, second: 0, millisecond: 0 });
     const endPst = startPst.plus({ minutes: duration });
 
     const open = startPst.set({ hour: OPEN_HOUR, minute: 0 });
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
     const dateUtc = startPst.startOf("day").toUTC().toJSDate();
 
     try {
-      const created = await prisma.appointment.create({
+      const appointment = await prisma.appointment.create({
         data: {
           date: dateUtc,
           startTime: startUtc,
@@ -83,7 +83,10 @@ export async function POST(req: Request) {
         },
       });
 
-      return NextResponse.json({ appointment: created }, { status: 201 });
+      return NextResponse.json(
+        { appointment },
+        { status: 201 }
+      );
     } catch (err: any) {
       if (err?.code === "P2002") {
         return NextResponse.json(
@@ -107,7 +110,7 @@ export async function POST(req: Request) {
   }
 }
 
-/* ---------------- GET (Availability — PUBLIC) ---------------- */
+/* ---------------- GET (Availability) ---------------- */
 
 export async function GET(req: Request) {
   try {
@@ -123,7 +126,10 @@ export async function GET(req: Request) {
 
     const day = DateTime.fromISO(date, { zone: TZ });
     if (!day.isValid) {
-      return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid date" },
+        { status: 400 }
+      );
     }
 
     const open = day.set({ hour: OPEN_HOUR, minute: 0 });
