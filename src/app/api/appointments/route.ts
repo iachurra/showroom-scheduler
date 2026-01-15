@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { DateTime } from "luxon";
 import { prisma } from "@/app/lib/prisma";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
 const TZ = "America/Los_Angeles";
 const OPEN_HOUR = 9;
@@ -17,25 +17,50 @@ type CreateAppointmentBody = {
   phone?: string;
 };
 
+function getSupabase() {
+  const cookieStore = cookies();
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options: any) {
+          cookieStore.set({ name, value, ...options });
+        },
+        remove(name: string, options: any) {
+          cookieStore.set({ name, value: "", ...options });
+        },
+      },
+    }
+  );
+}
+
+/* ---------------- POST (Create booking) ---------------- */
+
 export async function POST(req: Request) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = getSupabase();
+    const { data } = await supabase.auth.getSession();
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session) {
+    if (!data.session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = (await req.json()) as Partial<CreateAppointmentBody>;
+    const body = (await req.json()) as CreateAppointmentBody;
     const { date, startTime, name, email } = body;
     const duration = body.duration ?? 30;
     const phone = body.phone ?? null;
 
     if (!date || !startTime || !name || !email) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    if (duration !== 30 && duration !== 60) {
+      return NextResponse.json({ error: "Invalid duration" }, { status: 400 });
     }
 
     const day = DateTime.fromISO(date, { zone: TZ });
@@ -58,7 +83,10 @@ export async function POST(req: Request) {
     const close = startPst.set({ hour: CLOSE_HOUR, minute: 0 });
 
     if (startPst < open || endPst > close) {
-      return NextResponse.json({ error: "Outside booking hours" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Outside booking hours (9am–5pm PST)" },
+        { status: 400 }
+      );
     }
 
     const startUtc = startPst.toUTC().toJSDate();
@@ -66,7 +94,7 @@ export async function POST(req: Request) {
     const dateUtc = startPst.startOf("day").toUTC().toJSDate();
 
     try {
-      const appointment = await prisma.appointment.create({
+      const created = await prisma.appointment.create({
         data: {
           date: dateUtc,
           startTime: startUtc,
@@ -77,7 +105,7 @@ export async function POST(req: Request) {
         },
       });
 
-      return NextResponse.json({ appointment }, { status: 201 });
+      return NextResponse.json({ appointment: created }, { status: 201 });
     } catch (err: any) {
       if (err?.code === "P2002") {
         return NextResponse.json(
@@ -85,13 +113,17 @@ export async function POST(req: Request) {
           { status: 409 }
         );
       }
-      throw err;
+
+      console.error("Create appointment failed", err);
+      return NextResponse.json({ error: "Failed to create appointment" }, { status: 500 });
     }
   } catch (err) {
-    console.error("POST /api/appointments failed:", err);
+    console.error("POST /api/appointments error", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+/* ---------------- GET (Availability) ---------------- */
 
 export async function GET(req: Request) {
   try {
@@ -99,7 +131,7 @@ export async function GET(req: Request) {
     const date = searchParams.get("date");
 
     if (!date) {
-      return NextResponse.json({ error: "Missing date" }, { status: 400 });
+      return NextResponse.json({ error: "Missing date param" }, { status: 400 });
     }
 
     const day = DateTime.fromISO(date, { zone: TZ });
@@ -110,7 +142,7 @@ export async function GET(req: Request) {
     const open = day.set({ hour: OPEN_HOUR, minute: 0 });
     const close = day.set({ hour: CLOSE_HOUR, minute: 0 });
 
-    const appts = await prisma.appointment.findMany({
+    const appointments = await prisma.appointment.findMany({
       where: {
         startTime: {
           gte: open.toUTC().toJSDate(),
@@ -121,7 +153,7 @@ export async function GET(req: Request) {
     });
 
     const booked = new Set(
-      appts.map((a) =>
+      appointments.map(a =>
         DateTime.fromJSDate(a.startTime).setZone(TZ).toFormat("HH:mm")
       )
     );
@@ -135,9 +167,15 @@ export async function GET(req: Request) {
       cursor = cursor.plus({ minutes: 30 });
     }
 
-    return NextResponse.json({ date, slots, booked: [...booked] });
+    return NextResponse.json({
+      date,
+      timezone: TZ,
+      open: open.toFormat("HH:mm"),
+      close: close.toFormat("HH:mm"),
+      slots,
+    });
   } catch (err) {
-    console.error("GET /api/appointments failed:", err);
+    console.error("GET /api/appointments error", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
