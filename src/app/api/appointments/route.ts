@@ -17,8 +17,10 @@ type CreateAppointmentBody = {
   phone?: string;
 };
 
-function getSupabase() {
-  const cookieStore = cookies();
+/* ---------- Supabase (SERVER, async cookies-safe) ---------- */
+
+async function getSupabase() {
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,7 +34,12 @@ function getSupabase() {
           cookieStore.set({ name, value, ...options });
         },
         remove(name: string, options: any) {
-          cookieStore.set({ name, value: "", ...options });
+          cookieStore.set({
+            name,
+            value: "",
+            ...options,
+            maxAge: 0,
+          });
         },
       },
     }
@@ -43,7 +50,7 @@ function getSupabase() {
 
 export async function POST(req: Request) {
   try {
-    const supabase = getSupabase();
+    const supabase = await getSupabase();
     const { data } = await supabase.auth.getSession();
 
     if (!data.session) {
@@ -79,8 +86,8 @@ export async function POST(req: Request) {
     const startPst = day.set({ hour, minute, second: 0, millisecond: 0 });
     const endPst = startPst.plus({ minutes: duration });
 
-    const open = startPst.set({ hour: OPEN_HOUR, minute: 0 });
-    const close = startPst.set({ hour: CLOSE_HOUR, minute: 0 });
+    const open = startPst.set({ hour: OPEN_HOUR, minute: 0, second: 0, millisecond: 0 });
+    const close = startPst.set({ hour: CLOSE_HOUR, minute: 0, second: 0, millisecond: 0 });
 
     if (startPst < open || endPst > close) {
       return NextResponse.json(
@@ -115,7 +122,10 @@ export async function POST(req: Request) {
       }
 
       console.error("Create appointment failed", err);
-      return NextResponse.json({ error: "Failed to create appointment" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to create appointment" },
+        { status: 500 }
+      );
     }
   } catch (err) {
     console.error("POST /api/appointments error", err);
@@ -139,8 +149,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Invalid date" }, { status: 400 });
     }
 
-    const open = day.set({ hour: OPEN_HOUR, minute: 0 });
-    const close = day.set({ hour: CLOSE_HOUR, minute: 0 });
+    const open = day.set({ hour: OPEN_HOUR, minute: 0, second: 0, millisecond: 0 });
+    const close = day.set({ hour: CLOSE_HOUR, minute: 0, second: 0, millisecond: 0 });
 
     const appointments = await prisma.appointment.findMany({
       where: {
