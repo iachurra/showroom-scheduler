@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { DateTime } from "luxon";
 import { prisma } from "@/app/lib/prisma";
-import { createServerClient } from "@supabase/auth-helpers-nextjs";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
 
 const TZ = "America/Los_Angeles";
 const OPEN_HOUR = 9;
 const CLOSE_HOUR = 17;
 
 type CreateAppointmentBody = {
-  date: string;
-  startTime: string;
+  date: string;      // YYYY-MM-DD
+  startTime: string; // HH:mm (PST)
   duration?: 30 | 60;
   name: string;
   email: string;
@@ -20,34 +19,16 @@ type CreateAppointmentBody = {
 
 export async function POST(req: Request) {
   try {
-    /* -----------------------------
-       Supabase cookie-safe client
-    ------------------------------ */
-    const cookieStore = cookies();
-
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-        },
-      }
-    );
+    const supabase = createRouteHandlerClient({ cookies });
 
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
-    if (!session?.user) {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    /* -----------------------------
-       Parse + validate body
-    ------------------------------ */
     const body = (await req.json()) as Partial<CreateAppointmentBody>;
     const { date, startTime, name, email } = body;
     const duration = body.duration ?? 30;
@@ -57,9 +38,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    /* -----------------------------
-       Time math (PST → UTC)
-    ------------------------------ */
     const day = DateTime.fromISO(date, { zone: TZ });
     if (!day.isValid) {
       return NextResponse.json({ error: "Invalid date" }, { status: 400 });
@@ -80,16 +58,13 @@ export async function POST(req: Request) {
     const close = startPst.set({ hour: CLOSE_HOUR, minute: 0 });
 
     if (startPst < open || endPst > close) {
-      return NextResponse.json({ error: "Outside business hours" }, { status: 400 });
+      return NextResponse.json({ error: "Outside booking hours" }, { status: 400 });
     }
 
     const startUtc = startPst.toUTC().toJSDate();
     const endUtc = endPst.toUTC().toJSDate();
     const dateUtc = startPst.startOf("day").toUTC().toJSDate();
 
-    /* -----------------------------
-       DB create (unique enforced)
-    ------------------------------ */
     try {
       const appointment = await prisma.appointment.create({
         data: {
@@ -113,7 +88,7 @@ export async function POST(req: Request) {
       throw err;
     }
   } catch (err) {
-    console.error("POST /api/appointments error:", err);
+    console.error("POST /api/appointments failed:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -135,7 +110,7 @@ export async function GET(req: Request) {
     const open = day.set({ hour: OPEN_HOUR, minute: 0 });
     const close = day.set({ hour: CLOSE_HOUR, minute: 0 });
 
-    const appointments = await prisma.appointment.findMany({
+    const appts = await prisma.appointment.findMany({
       where: {
         startTime: {
           gte: open.toUTC().toJSDate(),
@@ -146,7 +121,7 @@ export async function GET(req: Request) {
     });
 
     const booked = new Set(
-      appointments.map(a =>
+      appts.map((a) =>
         DateTime.fromJSDate(a.startTime).setZone(TZ).toFormat("HH:mm")
       )
     );
@@ -160,9 +135,9 @@ export async function GET(req: Request) {
       cursor = cursor.plus({ minutes: 30 });
     }
 
-    return NextResponse.json({ date, slots });
+    return NextResponse.json({ date, slots, booked: [...booked] });
   } catch (err) {
-    console.error("GET /api/appointments error:", err);
+    console.error("GET /api/appointments failed:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
