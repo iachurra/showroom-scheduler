@@ -174,7 +174,7 @@ export default function HomeClient() {
 
       <label>
         Date:&nbsp;
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} min={todayISO} />
       </label>
 
       <h2>Available Slots</h2>

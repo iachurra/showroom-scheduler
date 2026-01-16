@@ -67,6 +67,16 @@ export async function POST(req: Request) {
       );
     }
 
+    // Prevent booking in the past: compare to current server time
+    // Use UTC milliseconds to avoid timezone issues
+    const startMillisUtc = startPst.toUTC().toMillis();
+    if (startMillisUtc < Date.now()) {
+      return NextResponse.json(
+        { error: "Cannot book appointments in the past" },
+        { status: 400 }
+      );
+    }
+
     const startUtc = startPst.toUTC().toJSDate();
     const endUtc = endPst.toUTC().toJSDate();
     const dateUtc = startPst.startOf("day").toUTC().toJSDate();
@@ -87,8 +97,8 @@ export async function POST(req: Request) {
         { appointment },
         { status: 201 }
       );
-    } catch (err: any) {
-      if (err?.code === "P2002") {
+    } catch (err) {
+  if ((err as { code?: string } | null)?.code === "P2002") {
         return NextResponse.json(
           { error: "Time slot already booked" },
           { status: 409 }
@@ -117,23 +127,29 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date");
 
+    // Use provided date if valid, otherwise fall back to today's date
+    // computed as UTC start-of-day and expressed in the app time zone.
+    let day: DateTime;
     if (!date) {
-      return NextResponse.json(
-        { error: "Missing date param" },
-        { status: 400 }
-      );
-    }
-
-    const day = DateTime.fromISO(date, { zone: TZ });
-    if (!day.isValid) {
-      return NextResponse.json(
-        { error: "Invalid date" },
-        { status: 400 }
-      );
+      // No date provided: fall back
+      day = DateTime.utc().startOf("day").setZone(TZ);
+    } else {
+      const parsed = DateTime.fromISO(date, { zone: TZ });
+      day = parsed.isValid ? parsed : DateTime.utc().startOf("day").setZone(TZ);
     }
 
     const open = day.set({ hour: OPEN_HOUR, minute: 0 });
     const close = day.set({ hour: CLOSE_HOUR, minute: 0 });
+
+    // Normalize requested date to UTC start-of-day. If it's in the past
+    // return an empty availability set rather than throwing an error —
+    // this prevents first-load errors when the client doesn't send a date
+    // or when a user navigates to an already-passed date.
+    const requestedUtcStart = day.startOf("day").toUTC();
+    const todayUtcStart = DateTime.utc().startOf("day");
+    if (requestedUtcStart < todayUtcStart) {
+      return NextResponse.json({ slots: [], booked: [] }, { status: 200 });
+    }
 
     const appointments = await prisma.appointment.findMany({
       where: {
@@ -146,7 +162,7 @@ export async function GET(req: Request) {
     });
 
     const booked = new Set(
-      appointments.map(a =>
+      appointments.map((a: { startTime: Date }) =>
         DateTime
           .fromJSDate(a.startTime)
           .setZone(TZ)
