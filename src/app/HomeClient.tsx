@@ -24,6 +24,7 @@ export default function HomeClient() {
   const initialDate = searchParams.get("date") || todayISO;
   const [date, setDate] = useState(initialDate);
 
+
   const [slots, setSlots] = useState<string[]>([]);
   const [booked, setBooked] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -32,8 +33,10 @@ export default function HomeClient() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
 
-  // FIX: status is ALWAYS a string
+  // status: for booking, error: for availability fetch
   const [status, setStatus] = useState<string>("");
+  const [error, setError] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
 
   const [isAuthed, setIsAuthed] = useState<boolean>(false);
 
@@ -53,16 +56,22 @@ export default function HomeClient() {
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
-      setStatus("");
-      setSelected(null);
+    setLoading(true);
+    setError(""); // Clear previous error on date change or new fetch
+    setStatus("");
+    setSelected(null);
 
+    async function load() {
       try {
         const res = await fetch(`/api/appointments?date=${date}`);
 
         if (!res.ok) {
           const err = await res.json().catch(() => null);
-          setStatus(err?.error ?? "Failed to load availability");
+          if (!cancelled) {
+            setError(err?.error ?? "Failed to load availability");
+            setSlots([]);
+            setBooked([]);
+          }
           return;
         }
 
@@ -71,9 +80,16 @@ export default function HomeClient() {
         if (!cancelled) {
           setSlots(data.slots ?? []);
           setBooked(data.booked ?? []);
+          setError("");
         }
       } catch {
-        if (!cancelled) setStatus("Failed to load availability");
+        if (!cancelled) {
+          setError("Failed to load availability");
+          setSlots([]);
+          setBooked([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -179,23 +195,32 @@ export default function HomeClient() {
 
       <h2>Available Slots</h2>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {slots.map((s) => {
-          const isBooked = booked.includes(s);
-          return (
-            <button
-              key={s}
-              disabled={isBooked}
-              onClick={() => handleTimeClick(s)}
-            >
-              {new Date(`1970-01-01T${s}:00`).toLocaleTimeString([], {
-                hour: "numeric",
-                minute: "2-digit",
-              })}
-            </button>
-          );
-        })}
-      </div>
+      {loading ? (
+        <p>Loading…</p>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {slots.map((s) => {
+              const isBooked = booked.includes(s);
+              return (
+                <button
+                  key={s}
+                  disabled={isBooked}
+                  onClick={() => handleTimeClick(s)}
+                >
+                  {new Date(`1970-01-01T${s}:00`).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </button>
+              );
+            })}
+          </div>
+          {error && (
+            <p style={{ marginTop: 16, color: "red" }}>{error}</p>
+          )}
+        </>
+      )}
 
       {isAuthed && selected && (
         <div style={{ marginTop: 24 }}>
