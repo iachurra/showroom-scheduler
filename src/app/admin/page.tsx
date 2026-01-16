@@ -75,14 +75,36 @@ useEffect(() => {
   };
 
   const saveEdit = async (id: number) => {
-    await fetch(`/api/appointments/admin/appointments?id=${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
+    // Build payload. Accept the form.startTime which may be a full datetime-local string
+    const payload: Record<string, unknown> = {
+      id,
+      startTime: form.startTime,
+      name: form.name,
+      email: form.email,
+      phone: form.phone,
+    };
 
-    setEditingId(null);
-    fetchAppointments();
+    try {
+      const res = await fetch(`/api/appointments/admin/appointments`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data?.error ?? "Failed to update appointment");
+        return;
+      }
+
+      // success
+      alert(data?.message ?? "Appointment updated successfully");
+      setEditingId(null);
+      fetchAppointments();
+    } catch (err) {
+      console.error(err);
+      alert("Network error updating appointment");
+    }
   };
 
   // -------------------------
