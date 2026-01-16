@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSession } from "./lib/auth";
 
+
+
 type AvailabilityResponse = {
   date: string;
   timezone: string;
