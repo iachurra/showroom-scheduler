@@ -147,7 +147,8 @@ export async function GET(req: Request) {
 
     const booked = new Set(
       appointments.map(a =>
-        DateTime.fromJSDate(a.startTime)
+        DateTime
+          .fromJSDate(a.startTime)
           .setZone(TZ)
           .toFormat("HH:mm")
       )
@@ -168,9 +169,10 @@ export async function GET(req: Request) {
       open: open.toFormat("HH:mm"),
       close: close.toFormat("HH:mm"),
       slots,
+      booked: Array.from(booked),
     });
   } catch (err) {
-    console.error("GET /api/appointments error", err);
+    console.error("GET /api/appointments failed", err);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
